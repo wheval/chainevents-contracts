@@ -72,6 +72,7 @@ fn test_add_event() {
     stop_cheat_caller_address(event_contract_address);
 }
 
+
 #[test]
 fn test_event_registration() {
     let strk_token = deploy_token_contract();
@@ -91,8 +92,8 @@ fn test_event_registration() {
 
     event_dispatcher.register_for_event(event_id);
     let event_details = event_dispatcher.event_details(event_id);
+    // Attendee can access their own registration
     let attendee_registration_details = event_dispatcher.attendee_event_details(event_id);
-
     assert(
         attendee_registration_details.attendee_address == user_two_address,
         'attendee_address mismatch',
@@ -108,7 +109,26 @@ fn test_event_registration() {
         attendee_registration_details.organizer == event_details.organizer, 'organizer mismatch',
     );
     stop_cheat_caller_address(event_contract_address);
+
+    // Owner can access any attendee's registration
+    start_cheat_caller_address(event_contract_address, user_one_address);
+    let attendee_registration_details_owner = event_dispatcher.attendee_event_details(event_id);
+    assert(
+        attendee_registration_details_owner.attendee_address == user_two_address,
+        'owner: attendee_address mismatch',
+    );
+    stop_cheat_caller_address(event_contract_address);
+
+    // Unregistered user should not be able to access
+    let user_three_address: ContractAddress = USER_THREE.try_into().unwrap();
+    start_cheat_caller_address(event_contract_address, user_three_address);
+    let result = std::panic::catch_unwind(|| {
+        event_dispatcher.attendee_event_details(event_id);
+    });
+    assert(result.is_err(), 'Unregistered user should not access attendee_event_details');
+    stop_cheat_caller_address(event_contract_address);
 }
+
 
 #[test]
 fn test_registration_to_multiple_events() {
@@ -131,13 +151,11 @@ fn test_registration_to_multiple_events() {
 
     event_dispatcher.register_for_event(event_id_1);
     event_dispatcher.register_for_event(event_id_2);
-
     let event_details_1 = event_dispatcher.event_details(event_id_1);
     let event_details_2 = event_dispatcher.event_details(event_id_2);
-
+    // Attendee can access their own registration for both events
     let attendee_registration_details_1 = event_dispatcher.attendee_event_details(event_id_1);
     let attendee_registration_details_2 = event_dispatcher.attendee_event_details(event_id_2);
-
     assert(
         attendee_registration_details_1.attendee_address == user_two_address,
         'E1: attendee_address mismatch',
@@ -167,6 +185,33 @@ fn test_registration_to_multiple_events() {
         attendee_registration_details_2.organizer == event_details_2.organizer,
         'E2: organizer mismatch',
     );
+    stop_cheat_caller_address(event_contract_address);
+
+    // Owner can access any attendee's registration for both events
+    start_cheat_caller_address(event_contract_address, user_one_address);
+    let attendee_registration_details_1_owner = event_dispatcher.attendee_event_details(event_id_1);
+    let attendee_registration_details_2_owner = event_dispatcher.attendee_event_details(event_id_2);
+    assert(
+        attendee_registration_details_1_owner.attendee_address == user_two_address,
+        'owner: E1 attendee_address mismatch',
+    );
+    assert(
+        attendee_registration_details_2_owner.attendee_address == user_two_address,
+        'owner: E2 attendee_address mismatch',
+    );
+    stop_cheat_caller_address(event_contract_address);
+
+    // Unregistered user should not be able to access
+    let user_three_address: ContractAddress = USER_THREE.try_into().unwrap();
+    start_cheat_caller_address(event_contract_address, user_three_address);
+    let result = std::panic::catch_unwind(|| {
+        event_dispatcher.attendee_event_details(event_id_1);
+    });
+    assert(result.is_err(), 'Unregistered user should not access attendee_event_details for event 1');
+    let result2 = std::panic::catch_unwind(|| {
+        event_dispatcher.attendee_event_details(event_id_2);
+    });
+    assert(result2.is_err(), 'Unregistered user should not access attendee_event_details for event 2');
     stop_cheat_caller_address(event_contract_address);
 }
 
@@ -1177,7 +1222,7 @@ fn test_only_owner_can_withdraw_paid_event_amount() {
     assert(event_contract_balance == event_fee, 'Incorrect balance');
 
     // Withdraw tokens
-    start_cheat_caller_address(event_contract_address, user_two);
+    start_cheat_caller_address(event_contract_address, user_one);
     event_dispatcher.withdraw_paid_event_amount(event_id);
     stop_cheat_caller_address(event_contract_address);
 }
