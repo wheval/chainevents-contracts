@@ -382,17 +382,37 @@ pub mod ChainEvents {
         /// @param event_id The ID of the event to query
         /// @return EventRegistration struct containing registration details
         fn attendee_event_details(self: @ContractState, event_id: u256) -> EventRegistration {
-           // Validate event exists
-           self._validate_event_exists(event_id.clone());
-           let caller = get_caller_address();
-           let event_owner = self.event_owners.read(event_id);
-           // Allow access if caller is event owner or registered attendee
-           if caller != event_owner {
-               let is_registered = self.event_registrations.read((caller, event_id));
-               assert(is_registered, NOT_REGISTERED);
-           }
-           // get the attendee event details for the caller
-           self._attendee_event_details(event_id)
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
+            let caller = get_caller_address();
+            // Only allow registered attendees to access their own details
+            let is_registered = self.event_registrations.read((caller, event_id));
+            assert(is_registered, NOT_REGISTERED);
+            // get the attendee event details for the caller
+            self._attendee_event_details(event_id)
+        }
+
+        /// @notice Gets the registration details for a specific attendee (owner only)
+        /// @param event_id The ID of the event to query
+        /// @param attendee The address of the attendee
+        /// @return EventRegistration struct containing registration details
+        /// @dev Only callable by event owner
+        fn get_attendee_registration_details(
+            self: @ContractState, event_id: u256, attendee: ContractAddress
+        ) -> EventRegistration {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
+
+            let caller = get_caller_address();
+            let event_owner = self.event_owners.read(event_id);
+            assert(caller == event_owner, NOT_OWNER);
+
+            // Verify attendee is registered for this event
+            let is_registered = self.event_registrations.read((attendee, event_id));
+            assert(is_registered, NOT_REGISTERED);
+
+            // Return attendee's registration details
+            self.attendee_event_details.read((event_id, attendee))
         }
 
         /// @notice Gets the number of registered attendees for an event
@@ -426,6 +446,9 @@ pub mod ChainEvents {
         /// @notice Allows users to pay for an event
         /// @param event_id: The id of the event to be paid for
         fn pay_for_event(ref self: ContractState, event_id: u256) {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
+
             let caller = get_caller_address();
             let event = self.event_details.entry(event_id).read();
             let attendee_event = self.attendee_event_details.entry((event_id, caller)).read();
@@ -446,9 +469,11 @@ pub mod ChainEvents {
         /// @param event_id The ID of the event to withdraw from
         /// @dev Only callable by event owner
         fn withdraw_paid_event_amount(ref self: ContractState, event_id: u256) {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
+
             let caller = get_caller_address();
             let event_owner = self.event_owners.read(event_id);
-            assert(!event_owner.is_zero(), INVALID_EVENT);
             assert(caller == event_owner, NOT_OWNER);
 
             let event_details = self.event_details.read(event_id);
@@ -464,14 +489,20 @@ pub mod ChainEvents {
                     WithdrawalMade { event_id, event_organizer: event_owner, amount: event_amount }
                 );
         }
+
         fn fetch_user_paid_event(self: @ContractState, user: ContractAddress) -> (u256, u256) {
             self._fetch_user_paid_event(user)
         }
 
         fn paid_event_ticket_counts(self: @ContractState, event_id: u256) -> u256 {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
             self._paid_event_ticket_counts(event_id)
         }
+
         fn event_total_amount_paid(self: @ContractState, event_id: u256) -> u256 {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
             self._event_total_amount_paid(event_id)
         }
 
@@ -495,12 +526,13 @@ pub mod ChainEvents {
             self._events_by_organizer(organizer)
         }
 
-
         /// @notice Get fetch all attendees by event
         /// @return Array of eventregistrations from contract adddresses
         fn fetch_all_attendees_on_event(
             self: @ContractState, event_id: u256,
         ) -> Array<EventRegistration> {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
             self._fetch_all_attendees_on_event(event_id)
         }
 
@@ -528,6 +560,9 @@ pub mod ChainEvents {
         /// @return Array of addresses on the waitlist
         /// @dev Returns an array of contract addresses representing users on the waitlist
         fn get_waitlist(self: @ContractState, event_id: u256) -> Array<ContractAddress> {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
+
             let mut waitlist_addresses: Array<ContractAddress> = array![];
             let waitlist = self.waitlist.entry(event_id);
             let waitlist_position = self.waitlist_position.read(event_id);
@@ -543,6 +578,9 @@ pub mod ChainEvents {
         /// @param attendee The address of the attendee
         /// @dev Only callable by event owner, attendee must be registered
         fn mark_attendance(ref self: ContractState, event_id: u256, attendee: ContractAddress) {
+            // Validate event exists
+            self._validate_event_exists(event_id.clone());
+
             // Verify caller is event owner
             let caller = get_caller_address();
             let event_owner = self.event_owners.read(event_id);
@@ -901,13 +939,6 @@ pub mod ChainEvents {
             caller_events
         }
 
-        fn _event_total_amount_paid(self: @ContractState, event_id: u256) -> u256 {
-            let event_details = self.event_details.read(event_id);
-            assert(event_details.event_id == event_id, INVALID_EVENT);
-            let event = self.paid_events_amount.read(event_id);
-            event
-        }
-
         fn _get_closed_events(self: @ContractState) -> Array<EventDetails> {
             let mut closed_events = ArrayTrait::new();
             let events_count = self.event_counts.read();
@@ -938,12 +969,6 @@ pub mod ChainEvents {
             };
 
             open_events
-        }
-
-        fn _paid_event_ticket_counts(self: @ContractState, event_id: u256) -> u256 {
-            let caller = get_caller_address();
-            let (event_id, _) = self.paid_events.read(caller);
-            self.paid_event_ticket_count.read(event_id)
         }
 
         fn _fetch_all_unpaid_events(self: @ContractState) -> Array<EventDetails> {
@@ -977,6 +1002,17 @@ pub mod ChainEvents {
             assert(event_id > 0, INVALID_EVENT);
             let event_count = self.event_counts.read();
             assert(event_id <= event_count, EVENT_NOT_FOUND);
+        }
+
+        fn _event_total_amount_paid(self: @ContractState, event_id: u256) -> u256 {
+            // Event existence is already validated in the public function
+            let event = self.paid_events_amount.read(event_id);
+            event
+        }
+
+        fn _paid_event_ticket_counts(self: @ContractState, event_id: u256) -> u256 {
+            // Event existence is already validated in the public function
+            self.paid_event_ticket_count.read(event_id)
         }
     }
 }
